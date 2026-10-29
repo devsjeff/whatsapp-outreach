@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LeadStatus {
+  PENDING
+  QUEUED
+  SENT
+  FAILED
+  REPLIED
+  OPTED_OUT
+  CONVERTED
+}
+
+enum CampaignStatus {
+  DRAFT
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum MessageDeliveryStatus {
+  QUEUED
+  ACCEPTED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model Lead {
+  id            String     @id @default(cuid())
+  businessName  String     @map("business_name")
+  contactPerson String?    @map("contact_person")
+  phone         String
+  phoneNormalized String   @unique @map("phone_normalized")
+  locality      String
+  category      String?
+  status        LeadStatus @default(PENDING)
+  notes         String?
+  lastCampaignId String?   @map("last_campaign_id")
+  lastSentAt    DateTime?  @map("last_sent_at")
+  lastRepliedAt DateTime?  @map("last_replied_at")
+  optedOutAt    DateTime?  @map("opted_out_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  lastCampaign  Campaign?  @relation("LeadLastCampaign", fields: [lastCampaignId], references: [id], onDelete: SetNull)
+  messages      MessageLog[]
+  optOutEvents  OptOutEvent[]
+  campaignLeads CampaignLead[]
+
+  @@index([status])
+  @@index([locality])
+  @@index([category])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+model Campaign {
+  id              String         @id @default(cuid())
+  name            String
+  status          CampaignStatus @default(DRAFT)
+  messageTemplate String         @map("message_template")
+  dailyLimit      Int            @default(35) @map("daily_limit")
+  minDelaySeconds Int            @default(60) @map("min_delay_seconds")
+  timezone        String         @default("Asia/Kolkata")
+  startedAt       DateTime?      @map("started_at")
+  pausedAt        DateTime?      @map("paused_at")
+  completedAt     DateTime?      @map("completed_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  leadsAsLast   Lead[]         @relation("LeadLastCampaign")
+  campaignLeads CampaignLead[]
+  messages      MessageLog[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("campaigns")
+}
+
+model CampaignLead {
+  id         String     @id @default(cuid())
+  campaignId String     @map("campaign_id")
+  leadId     String     @map("lead_id")
+  status     LeadStatus @default(QUEUED)
+  queuedAt   DateTime   @default(now()) @map("queued_at")
+  sentAt     DateTime?  @map("sent_at")
+  failedAt   DateTime?  @map("failed_at")
+  error      String?
+  jobId      String?    @map("job_id")
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  lead     Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, leadId])
+  @@index([status])
+  @@map("campaign_leads")
+}
+
+model MessageLog {
+  id              String                @id @default(cuid())
+  leadId          String                @map("lead_id")
+  campaignId      String?               @map("campaign_id")
+  direction       MessageDirection
+  body            String
+  deliveryStatus  MessageDeliveryStatus @default(QUEUED) @map("delivery_status")
+  providerMessageId String?             @map("provider_message_id")
+  providerRaw     Json?                 @map("provider_raw")
+  error           String?
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  lead     Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, createdAt])
+  @@index([campaignId])
+  @@index([direction])
+  @@index([deliveryStatus])
+  @@index([providerMessageId])
+  @@map("message_logs")
+}
+
+model OptOutEvent {
+  id        String   @id @default(cuid())
+  leadId    String   @map("lead_id")
+  source    String
+  keyword   String?
+  rawText   String?  @map("raw_text")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([createdAt])
+  @@map("opt_out_events")
+}
+
+model WebhookEvent {
+  id            String   @id @default(cuid())
+  eventKey      String   @unique @map("event_key")
+  eventType     String   @map("event_type")
+  instanceName  String?  @map("instance_name")
+  payload       Json
+  processedAt   DateTime? @map("processed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("webhook_events")
+}
+
+model AppState {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_state")
+}
